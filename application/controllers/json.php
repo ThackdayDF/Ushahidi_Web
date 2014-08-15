@@ -239,7 +239,8 @@ class Json_Controller extends Template_Controller {
 				'thumb' => $thumb,
 				'timestamp' => strtotime($marker->incident_date),
 				'count' => 1,
-				'class' => get_class($marker)
+				'class' => get_class($marker),
+				'title'  => $marker->incident_title
 			);
 			$json_item['geometry'] = array(
 				'type' => 'Point',
@@ -506,7 +507,7 @@ class Json_Controller extends Template_Controller {
 	 */
 	public function timeline($category_id = 0)
 	{
-		$category_id = (int) $category_id;
+		$category_id = (isset($_GET["c"]) AND ! empty($_GET["c"])) ? (int) $_GET["c"] : (int) $category_id; // HT: set category from url param is 'c' set
 
 		$this->auto_render = FALSE;
 		$db = new Database();
@@ -610,6 +611,14 @@ class Json_Controller extends Template_Controller {
 			array_push($graph_data[0]['data'], array((int)$_GET['s'] * 1000, 0));
 			array_push($graph_data[0]['data'], array((int)$_GET['e'] * 1000, 0));
 		}
+		// HT: If only one point append start and end with 0 unless start or end has value
+		elseif (count($graph_data[0]['data']) == 1) { 
+			$start = $end = false;
+			if($graph_data[0]['data'][0][0] == (int)$_GET['s']) $start = true;
+			if($graph_data[0]['data'][0][0] == (int)$_GET['e']) $end = true;
+			if(!$start) array_unshift($graph_data[0]['data'], array((int)$_GET['s'] * 1000, 0));
+			if(!$end) array_push($graph_data[0]['data'], array((int)$_GET['e'] * 1000, 0));
+		}
 
 		// Debug: push the query back in json
 		//$graph_data['query'] = $db->last_query();
@@ -620,7 +629,7 @@ class Json_Controller extends Template_Controller {
 	
 
 	/**
-	 * Read in new layer KML via file_get_contents
+	 * Read in new layer KML via HttpClient
 	 * @param int $layer_id - ID of the new KML Layer
 	 */
 	public function layer($layer_id = 0)
@@ -648,9 +657,14 @@ class Json_Controller extends Template_Controller {
 				$layer_link = Kohana::config('upload.directory').'/'.$layer_file;
 			}
 
-			$content = file_get_contents($layer_link);
+			$layer_request = new HttpClient($layer_link);
+			$content = $layer_request->execute();
 
-			if ($content !== false)
+			if ($content === FALSE) 
+			{
+				throw new Kohana_Exception($layer_request->get_error_msg());
+			}
+			else
 			{
 				echo $content;
 			}
@@ -801,6 +815,12 @@ class Json_Controller extends Template_Controller {
 		$lat_sum = $lon_sum = 0;
 		foreach ($cluster as $marker)
 		{
+			// Normalising data
+			if (is_array($marker))
+			{
+				$marker = (object) $marker;
+			}
+
 			// Handle both reports::fetch_incidents() response and actual ORM objects
 			$latitude = isset($marker->latitude) ? $marker->latitude : $marker->location->latitude;
 			$longitude = isset($marker->longitude) ? $marker->longitude : $marker->location->longitude;
